@@ -332,9 +332,14 @@ Buy
 
 <script>
 
+const protocol =
+    location.protocol === "https:"
+        ? "wss://"
+        : "ws://";
+
 const socket =
     new WebSocket(
-        `ws://${location.host}`
+        protocol + location.host
     );
 
 let state = null;
