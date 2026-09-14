@@ -8,13 +8,8 @@ const HOST = "0.0.0.0";
 
 const server = http.createServer((req, res) => {
     if (req.url === "/") {
-        res.writeHead(200, {
-            "Content-Type": "text/html"
-        });
-
-        res.end(fs.readFileSync(
-            path.join(__dirname, "index.html")
-        ));
+        res.writeHead(200, { "Content-Type": "text/html" });
+        res.end(fs.readFileSync(path.join(__dirname, "index.html")));
         return;
     }
 
@@ -67,12 +62,12 @@ const BOARD = [
     { name: "Boardwalk", price: 400, rent: 50 }
 ];
 
-const players = new Map();
+const PLAYER_COLORS = ["#e53935", "#2196f3", "#43a047", "#f9a825"];
+const MAX_PLAYERS = 4;
+const CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ";
 
-const properties = new Map();
-
-let turn = 0;
-let started = false;
+// rooms: code -> room
+const rooms = new Map();
 
 function send(ws, data) {
     if (ws.readyState === WebSocket.OPEN) {
@@ -80,44 +75,75 @@ function send(ws, data) {
     }
 }
 
-function broadcast(data) {
+function makeCode() {
+    let code;
+
+    do {
+        code = "";
+        for (let i = 0; i < 4; i++) {
+            code += CODE_CHARS[Math.floor(Math.random() * CODE_CHARS.length)];
+        }
+    } while (rooms.has(code));
+
+    return code;
+}
+
+function createRoom() {
+    const code = makeCode();
+
+    const room = {
+        code,
+        players: new Map(),
+        properties: new Map(),
+        hostId: null,
+        turn: 0,
+        started: false
+    };
+
+    rooms.set(code, room);
+    return room;
+}
+
+function roomBroadcast(room, data) {
     for (const ws of wss.clients) {
-        send(ws, data);
+        if (ws.roomCode === room.code) {
+            send(ws, data);
+        }
     }
 }
 
-function playerList() {
-    return [...players.values()];
+function roomLog(room, message) {
+    roomBroadcast(room, { type: "log", message });
 }
 
-function currentPlayer() {
-    const list = playerList();
+function playerList(room) {
+    return [...room.players.values()];
+}
 
-    if (list.length === 0)
+function currentPlayer(room) {
+    const list = playerList(room);
+
+    if (list.length === 0) {
         return null;
+    }
 
-    return list[turn];
+    return list[room.turn % list.length];
 }
 
-function state() {
+function roomState(room) {
     return {
         type: "state",
-        players: playerList(),
-        properties: Object.fromEntries(properties),
-        turn,
-        started
+        code: room.code,
+        hostId: room.hostId,
+        players: playerList(room),
+        properties: Object.fromEntries(room.properties),
+        turn: room.turn,
+        started: room.started
     };
 }
 
-function log(message) {
-    broadcast({
-        type: "log",
-        message
-    });
-}
-
-function broadcastState() {
-    broadcast(state());
+function broadcastRoomState(room) {
+    roomBroadcast(room, roomState(room));
 }
 
 function rollDice() {
@@ -127,70 +153,61 @@ function rollDice() {
     ];
 }
 
-function nextTurn() {
-    if (players.size === 0) {
-        turn = 0;
+function nextTurn(room) {
+    if (room.players.size === 0) {
+        room.turn = 0;
         return;
     }
 
-    turn++;
+    room.turn++;
 
-    if (turn >= players.size) {
-        turn = 0;
+    if (room.turn >= room.players.size) {
+        room.turn = 0;
     }
 }
 
-function handleLanding(player) {
+function handleLanding(room, player) {
     const tile = BOARD[player.position];
 
     // GO
     if (player.position === 0) {
         player.money += 200;
-
-        log(`${player.name} landed on GO and received $200.`);
+        roomLog(room, `${player.name} landed on GO and received $200.`);
         return;
     }
 
     // Income Tax
     if (tile.name === "Income Tax") {
         player.money -= 200;
-
-        log(`${player.name} paid $200 income tax.`);
+        roomLog(room, `${player.name} paid $200 income tax.`);
         return;
     }
 
     // Luxury Tax
     if (tile.name === "Luxury Tax") {
         player.money -= 100;
-
-        log(`${player.name} paid $100 luxury tax.`);
+        roomLog(room, `${player.name} paid $100 luxury tax.`);
         return;
     }
 
     // Go To Jail
     if (tile.name === "Go To Jail") {
         player.position = 10;
-
-        log(`${player.name} was sent to Jail.`);
+        roomLog(room, `${player.name} was sent to Jail.`);
         return;
     }
 
     // Chance / Community Chest
-    if (
-        tile.name === "Chance" ||
-        tile.name === "Community Chest"
-    ) {
+    if (tile.name === "Chance" || tile.name === "Community Chest") {
         const amounts = [-100, -50, 50, 100, 150, 200];
-
-        const amount =
-            amounts[Math.floor(Math.random() * amounts.length)];
+        const amount = amounts[Math.floor(Math.random() * amounts.length)];
 
         player.money += amount;
 
         if (amount >= 0) {
-            log(`${player.name} received $${amount}.`);
+            roomLog(room, `${player.name} received $${amount}.`);
         } else {
-            log(`${player.name} paid $${-amount}.`);
+            roomLog(room, `${player.name} paid $${-amount}.`);
         }
 
         return;
@@ -198,170 +215,265 @@ function handleLanding(player) {
 
     // Property
     if (tile.price > 0) {
-        let property = properties.get(player.position);
+        let property = room.properties.get(player.position);
 
         if (!property) {
-            property = {
-                owner: null,
-                price: tile.price,
-                rent: tile.rent
-            };
-
-            properties.set(player.position, property);
+            property = { owner: null, price: tile.price, rent: tile.rent };
+            room.properties.set(player.position, property);
         }
 
-        if (
-            property.owner &&
-            property.owner !== player.id
-        ) {
-            const owner = players.get(property.owner);
+        if (property.owner && property.owner !== player.id) {
+            const owner = room.players.get(property.owner);
 
             if (owner) {
                 player.money -= property.rent;
                 owner.money += property.rent;
 
-                log(
-                    `${player.name} paid ` +
-                    `$${property.rent} rent to ` +
-                    `${owner.name}.`
+                roomLog(
+                    room,
+                    `${player.name} paid $${property.rent} rent to ${owner.name}.`
                 );
             }
         }
     }
 }
 
-function handleRoll(ws) {
-    const player = players.get(ws.id);
+function handleRoll(ws, room) {
+    const player = room.players.get(ws.id);
 
-    if (!player || !started)
+    if (!player || !room.started) {
         return;
+    }
 
-    const current = currentPlayer();
+    const current = currentPlayer(room);
 
-    if (!current || current.id !== player.id)
+    if (!current || current.id !== player.id) {
         return;
+    }
 
     const [d1, d2] = rollDice();
-
     const total = d1 + d2;
-
     const oldPosition = player.position;
 
-    player.position =
-        (player.position + total) % BOARD.length;
+    player.position = (player.position + total) % BOARD.length;
 
     if (player.position < oldPosition) {
         player.money += 200;
-
-        log(
-            `${player.name} passed GO and collected $200.`
-        );
+        roomLog(room, `${player.name} passed GO and collected $200.`);
     }
 
-    broadcast({
-        type: "dice",
-        d1,
-        d2
-    });
+    roomBroadcast(room, { type: "dice", d1, d2 });
+    roomLog(room, `${player.name} rolled ${d1} + ${d2} = ${total}.`);
 
-    log(
-        `${player.name} rolled ${d1} + ${d2} = ${total}.`
-    );
-
-    handleLanding(player);
-
-    broadcastState();
+    handleLanding(room, player);
+    broadcastRoomState(room);
 
     // Doubles
     if (d1 === d2) {
-        log(
-            `${player.name} rolled doubles and gets another turn!`
-        );
-
+        roomLog(room, `${player.name} rolled doubles and gets another turn!`);
         return;
     }
 
-    nextTurn();
+    nextTurn(room);
 
-    const next = currentPlayer();
+    const next = currentPlayer(room);
 
     if (next) {
-        log(`${next.name}'s turn.`);
+        roomLog(room, `${next.name}'s turn.`);
     }
 
-    broadcastState();
+    broadcastRoomState(room);
 }
 
-function handleBuy(ws) {
-    const player = players.get(ws.id);
+function handleBuy(ws, room) {
+    const player = room.players.get(ws.id);
 
-    if (!player || !started)
+    if (!player || !room.started) {
         return;
-
-    const current = currentPlayer();
-
-    if (!current || current.id !== player.id)
-        return;
-
-    const position = player.position;
-
-    const tile = BOARD[position];
-
-    if (tile.price <= 0)
-        return;
-
-    let property = properties.get(position);
-
-    if (!property) {
-        property = {
-            owner: null,
-            price: tile.price,
-            rent: tile.rent
-        };
-
-        properties.set(position, property);
     }
 
-    if (property.owner !== null)
+    const current = currentPlayer(room);
+
+    if (!current || current.id !== player.id) {
         return;
+    }
+
+    const position = player.position;
+    const tile = BOARD[position];
+
+    if (tile.price <= 0) {
+        return;
+    }
+
+    let property = room.properties.get(position);
+
+    if (!property) {
+        property = { owner: null, price: tile.price, rent: tile.rent };
+        room.properties.set(position, property);
+    }
+
+    if (property.owner !== null) {
+        return;
+    }
 
     if (player.money < tile.price) {
-        log(
-            `${player.name} cannot afford ${tile.name}.`
-        );
-
+        roomLog(room, `${player.name} cannot afford ${tile.name}.`);
         return;
     }
 
     player.money -= tile.price;
-
     property.owner = player.id;
 
-    log(
-        `${player.name} bought ${tile.name} for $${tile.price}.`
-    );
+    roomLog(room, `${player.name} bought ${tile.name} for $${tile.price}.`);
+    broadcastRoomState(room);
+}
 
-    broadcastState();
+function addPlayerToRoom(ws, room, name) {
+    let finalName = String(name || "Player").slice(0, 20);
+
+    const existingNames = playerList(room).map(p => p.name);
+
+    if (existingNames.includes(finalName)) {
+        finalName += Math.floor(Math.random() * 100);
+    }
+
+    const player = {
+        id: ws.id,
+        name: finalName,
+        money: 1500,
+        position: 0,
+        color: PLAYER_COLORS[room.players.size]
+    };
+
+    room.players.set(ws.id, player);
+    ws.roomCode = room.code;
+
+    if (!room.hostId) {
+        room.hostId = ws.id;
+    }
+
+    return player;
+}
+
+function handleHost(ws, data) {
+    if (ws.roomCode) {
+        return;
+    }
+
+    const room = createRoom();
+    const player = addPlayerToRoom(ws, room, data.name);
+
+    send(ws, { type: "joined", id: ws.id, code: room.code });
+    roomLog(room, `${player.name} created the room.`);
+    broadcastRoomState(room);
+}
+
+function handleJoin(ws, data) {
+    if (ws.roomCode) {
+        return;
+    }
+
+    const code = String(data.code || "").trim().toUpperCase();
+    const room = rooms.get(code);
+
+    if (!room) {
+        send(ws, { type: "error", message: "Room not found." });
+        return;
+    }
+
+    if (room.started) {
+        send(ws, { type: "error", message: "That game has already started." });
+        return;
+    }
+
+    if (room.players.size >= MAX_PLAYERS) {
+        send(ws, { type: "error", message: "Room is full." });
+        return;
+    }
+
+    const player = addPlayerToRoom(ws, room, data.name);
+
+    send(ws, { type: "joined", id: ws.id, code: room.code });
+    roomLog(room, `${player.name} joined the room.`);
+    broadcastRoomState(room);
+}
+
+function handleStart(ws) {
+    const room = rooms.get(ws.roomCode);
+
+    if (!room || room.started) {
+        return;
+    }
+
+    if (ws.id !== room.hostId) {
+        send(ws, { type: "error", message: "Only the host can start the game." });
+        return;
+    }
+
+    if (room.players.size < 2) {
+        send(ws, { type: "error", message: "Need at least 2 players to start." });
+        return;
+    }
+
+    room.started = true;
+    room.turn = 0;
+
+    const current = currentPlayer(room);
+
+    roomLog(room, `Game started! ${current.name} goes first.`);
+    broadcastRoomState(room);
+}
+
+function handleDisconnect(ws) {
+    const room = rooms.get(ws.roomCode);
+
+    if (!room) {
+        return;
+    }
+
+    const player = room.players.get(ws.id);
+
+    if (!player) {
+        return;
+    }
+
+    // Release properties
+    for (const property of room.properties.values()) {
+        if (property.owner === ws.id) {
+            property.owner = null;
+        }
+    }
+
+    room.players.delete(ws.id);
+
+    if (room.players.size === 0) {
+        rooms.delete(room.code);
+        return;
+    }
+
+    if (room.hostId === ws.id) {
+        room.hostId = playerList(room)[0].id;
+    }
+
+    if (room.started && room.players.size < 2) {
+        room.started = false;
+        room.turn = 0;
+        roomLog(room, "Not enough players left. Waiting for more to join.");
+    } else if (room.turn >= room.players.size) {
+        room.turn = 0;
+    }
+
+    roomLog(room, `${player.name} left the room.`);
+    broadcastRoomState(room);
 }
 
 wss.on("connection", ws => {
-
-    ws.id =
-        Math.random().toString(36).slice(2) +
-        Date.now().toString(36);
+    ws.id = Math.random().toString(36).slice(2) + Date.now().toString(36);
+    ws.roomCode = null;
 
     console.log("Client connected:", ws.id);
 
-    send(ws, {
-        type: "state",
-        players: playerList(),
-        properties: Object.fromEntries(properties),
-        turn,
-        started
-    });
-
     ws.on("message", raw => {
-
         let data;
 
         try {
@@ -370,100 +482,37 @@ wss.on("connection", ws => {
             return;
         }
 
+        if (data.type === "host") {
+            handleHost(ws, data);
+            return;
+        }
+
         if (data.type === "join") {
+            handleJoin(ws, data);
+            return;
+        }
 
-            if (players.size >= 4) {
-                send(ws, {
-                    type: "error",
-                    message: "Game is full."
-                });
+        const room = rooms.get(ws.roomCode);
 
-                return;
-            }
+        if (!room) {
+            return;
+        }
 
-            let name =
-                String(data.name || "Player")
-                    .slice(0, 20);
-
-            const existingNames =
-                playerList().map(p => p.name);
-
-            if (existingNames.includes(name)) {
-                name +=
-                    Math.floor(
-                        Math.random() * 100
-                    );
-            }
-
-            const colors = [
-                "#e53935",
-                "#2196f3",
-                "#43a047",
-                "#f9a825"
-            ];
-
-            const player = {
-                id: ws.id,
-                name,
-                money: 1500,
-                position: 0,
-                color: colors[players.size]
-            };
-
-            players.set(ws.id, player);
-
-            log(`${name} joined the game.`);
-
-            if (players.size >= 2) {
-                started = true;
-
-                const current = currentPlayer();
-
-                log(
-                    `Game started! ${current.name} goes first.`
-                );
-            }
-
-            broadcastState();
+        if (data.type === "start") {
+            handleStart(ws);
         }
 
         if (data.type === "roll") {
-            handleRoll(ws);
+            handleRoll(ws, room);
         }
 
         if (data.type === "buy") {
-            handleBuy(ws);
+            handleBuy(ws, room);
         }
     });
 
     ws.on("close", () => {
-
-        const player = players.get(ws.id);
-
-        if (!player)
-            return;
-
-        const name = player.name;
-
-        // Release properties
-        for (const property of properties.values()) {
-            if (property.owner === ws.id) {
-                property.owner = null;
-            }
-        }
-
-        players.delete(ws.id);
-
-        if (players.size === 0) {
-            turn = 0;
-            started = false;
-        } else if (turn >= players.size) {
-            turn = 0;
-        }
-
-        log(`${name} left the game.`);
-
-        broadcastState();
+        handleDisconnect(ws);
     });
 });
 
