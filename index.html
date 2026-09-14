@@ -15,6 +15,10 @@
             font-family: Arial, sans-serif;
         }
 
+        .hidden {
+            display: none !important;
+        }
+
         header {
             height: 65px;
             padding: 0 20px;
@@ -27,14 +31,21 @@
 
         header h1 {
             margin: 0;
+            font-size: 20px;
         }
 
         #status {
             color: #67ff8b;
+            font-size: 13px;
         }
 
-        #login {
+        #room-badge {
             margin-left: auto;
+            background: #252b38;
+            padding: 8px 14px;
+            border-radius: 6px;
+            font-weight: bold;
+            letter-spacing: 2px;
         }
 
         input,
@@ -42,6 +53,7 @@
             padding: 10px;
             border-radius: 6px;
             border: none;
+            font-size: 14px;
         }
 
         input {
@@ -60,6 +72,119 @@
             opacity: .4;
             cursor: not-allowed;
         }
+
+        button.secondary {
+            background: #303746;
+        }
+
+        /* Home view */
+
+        #view-home {
+            max-width: 420px;
+            margin: 60px auto;
+            padding: 0 20px;
+        }
+
+        .card {
+            background: #171b24;
+            border: 1px solid #303746;
+            border-radius: 10px;
+            padding: 25px;
+            margin-bottom: 20px;
+        }
+
+        .card h2 {
+            margin-top: 0;
+        }
+
+        .field {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            margin-bottom: 15px;
+        }
+
+        .field label {
+            font-size: 12px;
+            color: #9aa4b8;
+        }
+
+        .row {
+            display: flex;
+            gap: 10px;
+        }
+
+        .row > * {
+            flex: 1;
+        }
+
+        #home-error {
+            color: #ff6b6b;
+            font-size: 13px;
+            min-height: 18px;
+        }
+
+        /* Waiting room view */
+
+        #view-waiting {
+            max-width: 500px;
+            margin: 60px auto;
+            padding: 0 20px;
+            text-align: center;
+        }
+
+        #waiting-code {
+            font-size: 48px;
+            font-weight: bold;
+            letter-spacing: 10px;
+            background: #171b24;
+            border: 1px solid #303746;
+            border-radius: 10px;
+            padding: 25px;
+            margin-bottom: 20px;
+        }
+
+        #waiting-hint {
+            color: #9aa4b8;
+            font-size: 13px;
+            margin-bottom: 25px;
+        }
+
+        #waiting-players {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            margin-bottom: 25px;
+        }
+
+        .waiting-player {
+            background: #252b38;
+            border-radius: 6px;
+            padding: 12px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .waiting-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+        }
+
+        .host-tag {
+            margin-left: auto;
+            font-size: 11px;
+            color: #f9a825;
+        }
+
+        #waiting-start-note {
+            color: #9aa4b8;
+            font-size: 13px;
+            margin-top: 10px;
+        }
+
+        /* Game view */
 
         #layout {
             display: flex;
@@ -211,42 +336,124 @@
     <header>
         <h1>🎲 Monopoly</h1>
         <span id="status">Connecting...</span>
-        <div id="login">
-            <input id="name" placeholder="Your name">
-            <button onclick="join()">Join Game</button>
-        </div>
+        <span id="room-badge" class="hidden"></span>
     </header>
 
-    <div id="layout">
-        <div id="board"></div>
-
-        <div id="side">
-            <div class="panel">
-                <h2>Players</h2>
-                <div id="players"></div>
+    <!-- Home: host or join -->
+    <div id="view-home">
+        <div class="card">
+            <h2>Host a game</h2>
+            <div class="field">
+                <label>Your name</label>
+                <input id="host-name" placeholder="Your name">
             </div>
+            <button id="host-btn" onclick="hostGame()">Host Game</button>
+        </div>
 
-            <div class="panel">
-                <h2>Game</h2>
-                <div id="turn">Waiting...</div>
-                <div id="dice">🎲 🎲</div>
-                <button id="roll" onclick="roll()" disabled>Roll</button>
-                <button id="buy" onclick="buy()" disabled>Buy</button>
+        <div class="card">
+            <h2>Join a game</h2>
+            <div class="field">
+                <label>Your name</label>
+                <input id="join-name" placeholder="Your name">
             </div>
+            <div class="field">
+                <label>Room code</label>
+                <input id="join-code" placeholder="e.g. ABCD" maxlength="4" style="text-transform: uppercase;">
+            </div>
+            <button id="join-btn" class="secondary" onclick="joinGame()">Join Game</button>
+        </div>
 
-            <div class="panel">
-                <h2>Log</h2>
-                <div id="log"></div>
+        <div id="home-error"></div>
+    </div>
+
+    <!-- Waiting room -->
+    <div id="view-waiting" class="hidden">
+        <div id="waiting-code"></div>
+        <div id="waiting-hint">Share this code with friends so they can join.</div>
+
+        <div id="waiting-players"></div>
+
+        <button id="start-btn" onclick="startGame()">Start Game</button>
+        <div id="waiting-start-note"></div>
+    </div>
+
+    <!-- Game -->
+    <div id="view-game" class="hidden">
+        <div id="layout">
+            <div id="board"></div>
+
+            <div id="side">
+                <div class="panel">
+                    <h2>Players</h2>
+                    <div id="players"></div>
+                </div>
+
+                <div class="panel">
+                    <h2>Game</h2>
+                    <div id="turn">Waiting...</div>
+                    <div id="dice">🎲 🎲</div>
+                    <button id="roll" onclick="roll()" disabled>Roll</button>
+                    <button id="buy" onclick="buy()" disabled>Buy</button>
+                </div>
+
+                <div class="panel">
+                    <h2>Log</h2>
+                    <div id="log"></div>
+                </div>
             </div>
         </div>
     </div>
 
     <script>
+        const BOARD = [
+            { name: "GO", price: 0, rent: 0 },
+            { name: "Mediterranean Avenue", price: 60, rent: 2 },
+            { name: "Community Chest", price: 0, rent: 0 },
+            { name: "Baltic Avenue", price: 60, rent: 4 },
+            { name: "Income Tax", price: 0, rent: 0 },
+            { name: "Reading Railroad", price: 200, rent: 25 },
+            { name: "Oriental Avenue", price: 100, rent: 6 },
+            { name: "Chance", price: 0, rent: 0 },
+            { name: "Vermont Avenue", price: 100, rent: 6 },
+            { name: "Connecticut Avenue", price: 120, rent: 8 },
+            { name: "Jail", price: 0, rent: 0 },
+            { name: "St. Charles Place", price: 140, rent: 10 },
+            { name: "Electric Company", price: 150, rent: 10 },
+            { name: "States Avenue", price: 140, rent: 10 },
+            { name: "Virginia Avenue", price: 160, rent: 12 },
+            { name: "Pennsylvania Railroad", price: 200, rent: 25 },
+            { name: "St. James Place", price: 180, rent: 14 },
+            { name: "Community Chest", price: 0, rent: 0 },
+            { name: "Tennessee Avenue", price: 180, rent: 14 },
+            { name: "New York Avenue", price: 200, rent: 16 },
+            { name: "Free Parking", price: 0, rent: 0 },
+            { name: "Kentucky Avenue", price: 220, rent: 18 },
+            { name: "Chance", price: 0, rent: 0 },
+            { name: "Indiana Avenue", price: 220, rent: 18 },
+            { name: "Illinois Avenue", price: 240, rent: 20 },
+            { name: "B&O Railroad", price: 200, rent: 25 },
+            { name: "Atlantic Avenue", price: 260, rent: 22 },
+            { name: "Ventnor Avenue", price: 260, rent: 22 },
+            { name: "Water Works", price: 150, rent: 10 },
+            { name: "Marvin Gardens", price: 280, rent: 24 },
+            { name: "Go To Jail", price: 0, rent: 0 },
+            { name: "Pacific Avenue", price: 300, rent: 26 },
+            { name: "North Carolina Avenue", price: 300, rent: 26 },
+            { name: "Community Chest", price: 0, rent: 0 },
+            { name: "Pennsylvania Avenue", price: 320, rent: 28 },
+            { name: "Short Line", price: 200, rent: 25 },
+            { name: "Chance", price: 0, rent: 0 },
+            { name: "Park Place", price: 350, rent: 35 },
+            { name: "Luxury Tax", price: 0, rent: 0 },
+            { name: "Boardwalk", price: 400, rent: 50 }
+        ];
+
         const protocol = location.protocol === "https:" ? "wss://" : "ws://";
         const socket = new WebSocket(protocol + location.host);
 
         let state = null;
         let myId = null;
+        let roomCode = null;
 
         socket.onopen = () => {
             document.getElementById("status").textContent = "● Connected";
@@ -258,6 +465,16 @@
 
         socket.onmessage = event => {
             const data = JSON.parse(event.data);
+
+            if (data.type === "joined") {
+                myId = data.id;
+                roomCode = data.code;
+
+                document.getElementById("room-badge").textContent = `Room ${roomCode}`;
+                document.getElementById("room-badge").classList.remove("hidden");
+
+                clearHomeError();
+            }
 
             if (data.type === "state") {
                 state = data;
@@ -273,7 +490,11 @@
             }
 
             if (data.type === "error") {
-                alert(data.message);
+                if (state && state.started) {
+                    alert(data.message);
+                } else {
+                    showHomeError(data.message);
+                }
             }
         };
 
@@ -281,10 +502,50 @@
             socket.send(JSON.stringify(data));
         }
 
-        function join() {
-            const name = document.getElementById("name").value.trim();
-            if (!name) return;
-            send({ type: "join", name });
+        function showView(name) {
+            document.getElementById("view-home").classList.toggle("hidden", name !== "home");
+            document.getElementById("view-waiting").classList.toggle("hidden", name !== "waiting");
+            document.getElementById("view-game").classList.toggle("hidden", name !== "game");
+        }
+
+        function showHomeError(message) {
+            document.getElementById("home-error").textContent = message;
+        }
+
+        function clearHomeError() {
+            document.getElementById("home-error").textContent = "";
+        }
+
+        function hostGame() {
+            const name = document.getElementById("host-name").value.trim();
+
+            if (!name) {
+                showHomeError("Enter your name first.");
+                return;
+            }
+
+            send({ type: "host", name });
+        }
+
+        function joinGame() {
+            const name = document.getElementById("join-name").value.trim();
+            const code = document.getElementById("join-code").value.trim().toUpperCase();
+
+            if (!name) {
+                showHomeError("Enter your name first.");
+                return;
+            }
+
+            if (code.length !== 4) {
+                showHomeError("Enter the 4-letter room code.");
+                return;
+            }
+
+            send({ type: "join", name, code });
+        }
+
+        function startGame() {
+            send({ type: "start" });
         }
 
         function roll() {
@@ -305,6 +566,51 @@
         }
 
         function render() {
+            if (state.started) {
+                showView("game");
+                renderGame();
+            } else {
+                showView("waiting");
+                renderWaiting();
+            }
+        }
+
+        function renderWaiting() {
+            document.getElementById("waiting-code").textContent = state.code;
+
+            const isHost = state.hostId === myId;
+            const container = document.getElementById("waiting-players");
+            container.innerHTML = "";
+
+            state.players.forEach(player => {
+                const div = document.createElement("div");
+                div.className = "waiting-player";
+
+                div.innerHTML = `
+                    <div class="waiting-dot" style="background: ${player.color}"></div>
+                    <span>${escapeHTML(player.name)}</span>
+                    ${player.id === state.hostId ? `<span class="host-tag">HOST</span>` : ""}
+                `;
+
+                container.appendChild(div);
+            });
+
+            const startBtn = document.getElementById("start-btn");
+            const note = document.getElementById("waiting-start-note");
+
+            if (isHost) {
+                startBtn.classList.remove("hidden");
+                startBtn.disabled = state.players.length < 2;
+                note.textContent = state.players.length < 2
+                    ? "Waiting for at least one more player..."
+                    : "";
+            } else {
+                startBtn.classList.add("hidden");
+                note.textContent = "Waiting for the host to start the game...";
+            }
+        }
+
+        function renderGame() {
             renderPlayers();
             renderBoard();
 
