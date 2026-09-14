@@ -13,7 +13,7 @@ const server = http.createServer((req, res) => {
         });
 
         res.end(fs.readFileSync(
-            path.join(__dirname, "client.js")
+            path.join(__dirname, "index.html")
         ));
         return;
     }
