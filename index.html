@@ -1,789 +1,453 @@
 <!DOCTYPE html>
 <html>
-
 <head>
-
-<meta charset="UTF-8">
-
-<title>WebSocket Monopoly</title>
-
-<style>
-
-* {
-    box-sizing: border-box;
-}
-
-body {
-    margin: 0;
-    background: #10131a;
-    color: white;
-    font-family: Arial, sans-serif;
-}
-
-header {
-    height: 65px;
-    padding: 0 20px;
-
-    display: flex;
-    align-items: center;
-    gap: 15px;
-
-    background: #171b24;
-    border-bottom: 1px solid #303746;
-}
-
-header h1 {
-    margin: 0;
-}
-
-#status {
-    color: #67ff8b;
-}
-
-#login {
-    margin-left: auto;
-}
-
-input,
-button {
-    padding: 10px;
-    border-radius: 6px;
-    border: none;
-}
-
-input {
-    background: #252b38;
-    color: white;
-}
-
-button {
-    background: #3978ff;
-    color: white;
-    font-weight: bold;
-    cursor: pointer;
-}
-
-button:disabled {
-    opacity: .4;
-    cursor: not-allowed;
-}
-
-#layout {
-    display: flex;
-    gap: 20px;
-    padding: 20px;
-    max-width: 1400px;
-    margin: auto;
-}
-
-#board {
-    width: min(75vw, 800px);
-    aspect-ratio: 1;
-
-    display: grid;
-
-    grid-template-columns: repeat(11, 1fr);
-    grid-template-rows: repeat(11, 1fr);
-
-    background: #eee;
-    border: 5px solid #111;
-}
-
-.cell {
-    position: relative;
-
-    background: #f3eedb;
-    color: #111;
-
-    border: 1px solid #777;
-
-    display: flex;
-    flex-direction: column;
-
-    text-align: center;
-
-    font-size: clamp(7px, 1vw, 12px);
-
-    overflow: hidden;
-}
-
-.color {
-    height: 18%;
-    background: #aaa;
-}
-
-.name {
-    font-weight: bold;
-    padding: 2px;
-}
-
-.price {
-    font-size: 9px;
-}
-
-.owner {
-    font-size: 8px;
-}
-
-.tokens {
-    position: absolute;
-    bottom: 2px;
-    left: 2px;
-
-    display: flex;
-    gap: 2px;
-}
-
-.token {
-    width: 17px;
-    height: 17px;
-
-    border-radius: 50%;
-
-    border: 2px solid white;
-
-    color: white;
-
-    display: flex;
-    justify-content: center;
-    align-items: center;
-
-    font-size: 9px;
-}
-
-#center {
-    grid-column: 2 / 11;
-    grid-row: 2 / 11;
-
-    background: #dcefd8;
-
-    color: #111;
-
-    display: flex;
-    flex-direction: column;
-
-    justify-content: center;
-    align-items: center;
-}
-
-#center h2 {
-    font-size: clamp(20px, 4vw, 45px);
-    margin: 0;
-}
-
-#side {
-    width: 320px;
-}
-
-.panel {
-    background: #171b24;
-
-    border: 1px solid #303746;
-
-    border-radius: 10px;
-
-    padding: 15px;
-
-    margin-bottom: 15px;
-}
-
-.panel h2 {
-    margin-top: 0;
-}
-
-.player {
-    padding: 10px;
-    margin-bottom: 7px;
-
-    background: #252b38;
-
-    border-radius: 6px;
-}
-
-.player.turn {
-    outline: 2px solid #62ff8b;
-}
-
-#dice {
-    font-size: 35px;
-    margin: 10px 0;
-}
-
-#log {
-    height: 180px;
-
-    overflow-y: auto;
-
-    background: #0b0d12;
-
-    border-radius: 6px;
-
-    padding: 8px;
-
-    font-size: 12px;
-}
-
-.logline {
-    margin-bottom: 6px;
-}
-
-@media(max-width: 900px) {
-
-    #layout {
-        flex-direction: column;
-    }
-
-    #board {
-        width: 95vw;
-        margin: auto;
-    }
-
-    #side {
-        width: 95vw;
-        margin: auto;
-    }
-
-}
-
-</style>
-
-</head>
-
-<body>
-
-<header>
-
-<h1>🎲 Monopoly</h1>
-
-<span id="status">
-Connecting...
-</span>
-
-<div id="login">
-
-<input
-    id="name"
-    placeholder="Your name"
->
-
-<button onclick="join()">
-Join Game
-</button>
-
-</div>
-
-</header>
-
-<div id="layout">
-
-<div id="board"></div>
-
-<div id="side">
-
-<div class="panel">
-
-<h2>Players</h2>
-
-<div id="players"></div>
-
-</div>
-
-<div class="panel">
-
-<h2>Game</h2>
-
-<div id="turn">
-Waiting...
-</div>
-
-<div id="dice">
-🎲 🎲
-</div>
-
-<button
-    id="roll"
-    onclick="roll()"
-    disabled
->
-Roll
-</button>
-
-<button
-    id="buy"
-    onclick="buy()"
-    disabled
->
-Buy
-</button>
-
-</div>
-
-<div class="panel">
-
-<h2>Log</h2>
-
-<div id="log"></div>
-
-</div>
-
-</div>
-
-</div>
-
-<script>
-
-const protocol =
-    location.protocol === "https:"
-        ? "wss://"
-        : "ws://";
-
-const socket =
-    new WebSocket(
-        protocol + location.host
-    );
-
-let state = null;
-
-let myId = null;
-
-socket.onopen = () => {
-
-    document.getElementById(
-        "status"
-    ).textContent = "● Connected";
-
-};
-
-socket.onclose = () => {
-
-    document.getElementById(
-        "status"
-    ).textContent = "● Disconnected";
-
-};
-
-socket.onmessage = event => {
-
-    const data =
-        JSON.parse(event.data);
-
-    if (data.type === "state") {
-
-        state = data;
-
-        render();
-
-    }
-
-    if (data.type === "log") {
-
-        addLog(data.message);
-
-    }
-
-    if (data.type === "dice") {
-
-        document.getElementById(
-            "dice"
-        ).textContent =
-            `🎲 ${data.d1} + 🎲 ${data.d2}`;
-
-    }
-
-    if (data.type === "error") {
-
-        alert(data.message);
-
-    }
-
-};
-
-function send(data) {
-
-    socket.send(
-        JSON.stringify(data)
-    );
-
-}
-
-function join() {
-
-    const name =
-        document.getElementById(
-            "name"
-        ).value.trim();
-
-    if (!name)
-        return;
-
-    send({
-        type: "join",
-        name
-    });
-
-}
-
-function roll() {
-
-    send({
-        type: "roll"
-    });
-
-}
-
-function buy() {
-
-    send({
-        type: "buy"
-    });
-
-}
-
-function addLog(message) {
-
-    const log =
-        document.getElementById(
-            "log"
-        );
-
-    const div =
-        document.createElement("div");
-
-    div.className = "logline";
-
-    div.textContent = message;
-
-    log.appendChild(div);
-
-    log.scrollTop =
-        log.scrollHeight;
-
-}
-
-function render() {
-
-    renderPlayers();
-
-    renderBoard();
-
-    const me =
-        state.players.find(
-            p => p.id === myId
-        );
-
-    const current =
-        state.players[state.turn];
-
-    const myTurn =
-        me &&
-        current &&
-        me.id === current.id;
-
-    document.getElementById(
-        "roll"
-    ).disabled = !myTurn;
-
-    if (me) {
-
-        const tile =
-            BOARD[me.position];
-
-        const property =
-            state.properties[
-                me.position
-            ];
-
-        document.getElementById(
-            "buy"
-        ).disabled =
-            !myTurn ||
-            !tile ||
-            tile.price <= 0 ||
-            (property &&
-             property.owner !== null);
-
-    }
-
-    document.getElementById(
-        "turn"
-    ).textContent =
-        current
-        ? `${current.name}'s turn`
-        : "Waiting...";
-
-}
-
-function renderPlayers() {
-
-    const container =
-        document.getElementById(
-            "players"
-        );
-
-    container.innerHTML = "";
-
-    state.players.forEach(
-        (player, index) => {
-
-            const div =
-                document.createElement(
-                    "div"
-                );
-
-            div.className =
-                "player";
-
-            if (
-                index === state.turn
-            ) {
-                div.classList.add(
-                    "turn"
-                );
+    <meta charset="UTF-8">
+    <title>WebSocket Monopoly</title>
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            background: #10131a;
+            color: white;
+            font-family: Arial, sans-serif;
+        }
+
+        header {
+            height: 65px;
+            padding: 0 20px;
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            background: #171b24;
+            border-bottom: 1px solid #303746;
+        }
+
+        header h1 {
+            margin: 0;
+        }
+
+        #status {
+            color: #67ff8b;
+        }
+
+        #login {
+            margin-left: auto;
+        }
+
+        input,
+        button {
+            padding: 10px;
+            border-radius: 6px;
+            border: none;
+        }
+
+        input {
+            background: #252b38;
+            color: white;
+        }
+
+        button {
+            background: #3978ff;
+            color: white;
+            font-weight: bold;
+            cursor: pointer;
+        }
+
+        button:disabled {
+            opacity: .4;
+            cursor: not-allowed;
+        }
+
+        #layout {
+            display: flex;
+            gap: 20px;
+            padding: 20px;
+            max-width: 1400px;
+            margin: auto;
+        }
+
+        #board {
+            width: min(75vw, 800px);
+            aspect-ratio: 1;
+            display: grid;
+            grid-template-columns: repeat(11, 1fr);
+            grid-template-rows: repeat(11, 1fr);
+            background: #eee;
+            border: 5px solid #111;
+        }
+
+        .cell {
+            position: relative;
+            background: #f3eedb;
+            color: #111;
+            border: 1px solid #777;
+            display: flex;
+            flex-direction: column;
+            text-align: center;
+            font-size: clamp(7px, 1vw, 12px);
+            overflow: hidden;
+        }
+
+        .color {
+            height: 18%;
+            background: #aaa;
+        }
+
+        .name {
+            font-weight: bold;
+            padding: 2px;
+        }
+
+        .price {
+            font-size: 9px;
+        }
+
+        .owner {
+            font-size: 8px;
+        }
+
+        .tokens {
+            position: absolute;
+            bottom: 2px;
+            left: 2px;
+            display: flex;
+            gap: 2px;
+        }
+
+        .token {
+            width: 17px;
+            height: 17px;
+            border-radius: 50%;
+            border: 2px solid white;
+            color: white;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 9px;
+        }
+
+        #center {
+            grid-column: 2 / 11;
+            grid-row: 2 / 11;
+            background: #dcefd8;
+            color: #111;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+        }
+
+        #center h2 {
+            font-size: clamp(20px, 4vw, 45px);
+            margin: 0;
+        }
+
+        #side {
+            width: 320px;
+        }
+
+        .panel {
+            background: #171b24;
+            border: 1px solid #303746;
+            border-radius: 10px;
+            padding: 15px;
+            margin-bottom: 15px;
+        }
+
+        .panel h2 {
+            margin-top: 0;
+        }
+
+        .player {
+            padding: 10px;
+            margin-bottom: 7px;
+            background: #252b38;
+            border-radius: 6px;
+        }
+
+        .player.turn {
+            outline: 2px solid #62ff8b;
+        }
+
+        #dice {
+            font-size: 35px;
+            margin: 10px 0;
+        }
+
+        #log {
+            height: 180px;
+            overflow-y: auto;
+            background: #0b0d12;
+            border-radius: 6px;
+            padding: 8px;
+            font-size: 12px;
+        }
+
+        .logline {
+            margin-bottom: 6px;
+        }
+
+        @media(max-width: 900px) {
+            #layout {
+                flex-direction: column;
             }
 
-            div.innerHTML = `
-                <b>
-                    ${escapeHTML(player.name)}
-                </b>
+            #board {
+                width: 95vw;
+                margin: auto;
+            }
 
-                <br>
-
-                💰 $${player.money}
-
-                <br>
-
-                📍 ${escapeHTML(
-                    BOARD[player.position].name
-                )}
-            `;
-
-            container.appendChild(div);
-
+            #side {
+                width: 95vw;
+                margin: auto;
+            }
         }
-    );
+    </style>
+</head>
+<body>
+    <header>
+        <h1>🎲 Monopoly</h1>
+        <span id="status">Connecting...</span>
+        <div id="login">
+            <input id="name" placeholder="Your name">
+            <button onclick="join()">Join Game</button>
+        </div>
+    </header>
 
-}
+    <div id="layout">
+        <div id="board"></div>
 
-function renderBoard() {
+        <div id="side">
+            <div class="panel">
+                <h2>Players</h2>
+                <div id="players"></div>
+            </div>
 
-    const board =
-        document.getElementById(
-            "board"
-        );
+            <div class="panel">
+                <h2>Game</h2>
+                <div id="turn">Waiting...</div>
+                <div id="dice">🎲 🎲</div>
+                <button id="roll" onclick="roll()" disabled>Roll</button>
+                <button id="buy" onclick="buy()" disabled>Buy</button>
+            </div>
 
-    board.innerHTML = "";
+            <div class="panel">
+                <h2>Log</h2>
+                <div id="log"></div>
+            </div>
+        </div>
+    </div>
 
-    /*
-        Convert Monopoly's 40 positions
-        into the perimeter of an 11x11 grid.
-    */
+    <script>
+        const protocol = location.protocol === "https:" ? "wss://" : "ws://";
+        const socket = new WebSocket(protocol + location.host);
 
-    const positions = [];
+        let state = null;
+        let myId = null;
 
-    // Top
-    for (
-        let x = 0;
-        x < 11;
-        x++
-    ) {
-        positions.push(20 + x);
-    }
+        socket.onopen = () => {
+            document.getElementById("status").textContent = "● Connected";
+        };
 
-    // Right
-    for (
-        let y = 1;
-        y < 10;
-        y++
-    ) {
-        positions.push(30 + y);
-    }
+        socket.onclose = () => {
+            document.getElementById("status").textContent = "● Disconnected";
+        };
 
-    // Bottom
-    for (
-        let x = 10;
-        x >= 0;
-        x--
-    ) {
-        positions.push(x);
-    }
+        socket.onmessage = event => {
+            const data = JSON.parse(event.data);
 
-    // Left
-    for (
-        let y = 9;
-        y >= 1;
-        y--
-    ) {
-        positions.push(y * 10);
-    }
+            if (data.type === "state") {
+                state = data;
+                render();
+            }
 
-    const unique =
-        [...new Set(positions)];
+            if (data.type === "log") {
+                addLog(data.message);
+            }
 
-    unique.forEach(
-        position => {
+            if (data.type === "dice") {
+                document.getElementById("dice").textContent = `🎲 ${data.d1} + 🎲 ${data.d2}`;
+            }
 
-            const tile =
-                BOARD[position];
+            if (data.type === "error") {
+                alert(data.message);
+            }
+        };
 
-            const cell =
-                document.createElement(
-                    "div"
-                );
+        function send(data) {
+            socket.send(JSON.stringify(data));
+        }
 
-            cell.className =
-                "cell";
+        function join() {
+            const name = document.getElementById("name").value.trim();
+            if (!name) return;
+            send({ type: "join", name });
+        }
 
-            const property =
-                state.properties[
-                    position
-                ];
+        function roll() {
+            send({ type: "roll" });
+        }
 
-            const owner =
-                property
-                ? state.players.find(
-                    p =>
-                        p.id ===
-                        property.owner
-                )
-                : null;
+        function buy() {
+            send({ type: "buy" });
+        }
 
-            const playersHere =
-                state.players.filter(
-                    p =>
-                        p.position ===
-                        position
-                );
+        function addLog(message) {
+            const log = document.getElementById("log");
+            const div = document.createElement("div");
+            div.className = "logline";
+            div.textContent = message;
+            log.appendChild(div);
+            log.scrollTop = log.scrollHeight;
+        }
 
-            cell.innerHTML = `
+        function render() {
+            renderPlayers();
+            renderBoard();
 
-                <div
-                    class="color"
-                    style="
-                        background:
-                        ${getColor(position)}
-                    "
-                ></div>
+            const me = state.players.find(p => p.id === myId);
+            const current = state.players[state.turn];
+            const myTurn = me && current && me.id === current.id;
 
-                <div class="name">
-                    ${escapeHTML(tile.name)}
-                </div>
+            document.getElementById("roll").disabled = !myTurn;
 
-                ${
-                    tile.price
-                    ? `<div class="price">
-                        $${tile.price}
-                       </div>`
-                    : ""
+            if (me) {
+                const tile = BOARD[me.position];
+                const property = state.properties[me.position];
+
+                document.getElementById("buy").disabled =
+                    !myTurn ||
+                    !tile ||
+                    tile.price <= 0 ||
+                    (property && property.owner !== null);
+            }
+
+            document.getElementById("turn").textContent = current
+                ? `${current.name}'s turn`
+                : "Waiting...";
+        }
+
+        function renderPlayers() {
+            const container = document.getElementById("players");
+            container.innerHTML = "";
+
+            state.players.forEach((player, index) => {
+                const div = document.createElement("div");
+                div.className = "player";
+
+                if (index === state.turn) {
+                    div.classList.add("turn");
                 }
 
-                ${
-                    owner
-                    ? `<div class="owner">
-                        🏠 ${escapeHTML(owner.name)}
-                       </div>`
-                    : ""
-                }
+                div.innerHTML = `
+                    <b>${escapeHTML(player.name)}</b>
+                    <br>
+                    💰 $${player.money}
+                    <br>
+                    📍 ${escapeHTML(BOARD[player.position].name)}
+                `;
 
-                <div class="tokens">
+                container.appendChild(div);
+            });
+        }
 
-                    ${
-                        playersHere.map(
-                            p => `
-                            <div
-                                class="token"
-                                style="
-                                    background:
-                                    ${p.color}
-                                "
-                            >
-                                ${escapeHTML(
-                                    p.name[0]
-                                )}
+        function renderBoard() {
+            const board = document.getElementById("board");
+            board.innerHTML = "";
+
+            /*
+                Convert Monopoly's 40 positions
+                into the perimeter of an 11x11 grid.
+            */
+            const positions = [];
+
+            // Top
+            for (let x = 0; x < 11; x++) {
+                positions.push(20 + x);
+            }
+
+            // Right
+            for (let y = 1; y < 10; y++) {
+                positions.push(30 + y);
+            }
+
+            // Bottom
+            for (let x = 10; x >= 0; x--) {
+                positions.push(x);
+            }
+
+            // Left
+            for (let y = 9; y >= 1; y--) {
+                positions.push(y * 10);
+            }
+
+            const unique = [...new Set(positions)];
+
+            unique.forEach(position => {
+                const tile = BOARD[position];
+                const cell = document.createElement("div");
+                cell.className = "cell";
+
+                const property = state.properties[position];
+                const owner = property
+                    ? state.players.find(p => p.id === property.owner)
+                    : null;
+
+                const playersHere = state.players.filter(p => p.position === position);
+
+                cell.innerHTML = `
+                    <div class="color" style="background: ${getColor(position)}"></div>
+                    <div class="name">${escapeHTML(tile.name)}</div>
+                    ${tile.price ? `<div class="price">$${tile.price}</div>` : ""}
+                    ${owner ? `<div class="owner">🏠 ${escapeHTML(owner.name)}</div>` : ""}
+                    <div class="tokens">
+                        ${playersHere.map(p => `
+                            <div class="token" style="background: ${p.color}">
+                                ${escapeHTML(p.name[0])}
                             </div>
-                            `
-                        ).join("")
-                    }
+                        `).join("")}
+                    </div>
+                `;
 
-                </div>
+                board.appendChild(cell);
+            });
+
+            const center = document.createElement("div");
+            center.id = "center";
+            center.innerHTML = `
+                <h2>MONOPOLY</h2>
+                <p>${state.players.length} players</p>
             `;
 
-            board.appendChild(cell);
-
+            board.appendChild(center);
         }
-    );
 
-    const center =
-        document.createElement(
-            "div"
-        );
+        function getColor(position) {
+            const colors = {
+                1: "#8b5a2b", 3: "#8b5a2b",
+                6: "#9ed8e8", 8: "#9ed8e8", 9: "#9ed8e8",
+                11: "#c45ccf", 13: "#c45ccf", 14: "#c45ccf",
+                16: "#f28b82", 18: "#f28b82", 19: "#f28b82",
+                21: "#f5a623", 23: "#f5a623", 24: "#f5a623",
+                26: "#e53935", 27: "#e53935", 29: "#e53935",
+                31: "#f2d14b", 32: "#f2d14b", 34: "#f2d14b",
+                37: "#38a9e0", 39: "#38a9e0"
+            };
 
-    center.id = "center";
+            return colors[position] || "#aaa";
+        }
 
-    center.innerHTML = `
-        <h2>MONOPOLY</h2>
-        <p>
-            ${state.players.length}
-            players
-        </p>
-    `;
-
-    board.appendChild(center);
-
-}
-
-function getColor(position) {
-
-    const colors = {
-
-        1: "#8b5a2b",
-        3: "#8b5a2b",
-
-        6: "#9ed8e8",
-        8: "#9ed8e8",
-        9: "#9ed8e8",
-
-        11: "#c45ccf",
-        13: "#c45ccf",
-        14: "#c45ccf",
-
-        16: "#f28b82",
-        18: "#f28b82",
-        19: "#f28b82",
-
-        21: "#f5a623",
-        23: "#f5a623",
-        24: "#f5a623",
-
-        26: "#e53935",
-        27: "#e53935",
-        29: "#e53935",
-
-        31: "#f2d14b",
-        32: "#f2d14b",
-        34: "#f2d14b",
-
-        37: "#38a9e0",
-        39: "#38a9e0"
-
-    };
-
-    return colors[position] || "#aaa";
-
-}
-
-function escapeHTML(value) {
-
-    return String(value)
-        .replaceAll("&", "&amp;")
-        .replaceAll("<", "&lt;")
-        .replaceAll(">", "&gt;")
-        .replaceAll('"', "&quot;")
-        .replaceAll("'", "&#039;");
-
-}
-
-</script>
-
+        function escapeHTML(value) {
+            return String(value)
+                .replaceAll("&", "&amp;")
+                .replaceAll("<", "&lt;")
+                .replaceAll(">", "&gt;")
+                .replaceAll('"', "&quot;")
+                .replaceAll("'", "&#039;");
+        }
+    </script>
 </body>
-
 </html>
